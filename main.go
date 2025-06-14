@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -37,42 +36,56 @@ func main() {
 	if _, err := fmt.Scanln(&prompt); err != nil {
 		panic(err)
 	}
-
 	resp, err := session.SendMessage(ctx, genai.Text(prompt))
 	if err != nil {
 		panic(err)
 	}
+	if err := consumeResponse(session, resp); err != nil {
+		panic(err)
+	}
+}
+
+func consumeResponse(session *genai.ChatSession, resp *genai.GenerateContentResponse) error {
 	for _, part := range resp.Candidates[0].Content.Parts {
 		switch part := part.(type) {
-		case genai.FunctionCall:
-			fmt.Printf("CALL: %s\n", part.Name)
-			if part.Name == "time_now" {
-				now := time.Now().UTC().Format(time.RFC3339)
-				response := genai.FunctionResponse{
-					Name: "find_theaters",
-					Response: map[string]any{
-						"current_time": now,
-					},
-				}
-				resp2, err := session.SendMessage(ctx, response)
-				if err != nil {
-					panic(err)
-				}
-				for _, part := range resp2.Candidates[0].Content.Parts {
-					switch part := part.(type) {
-					case genai.Text:
-						fmt.Printf("RESP: %s\n", string(part))
-					default:
-						fmt.Printf("Unexpected content type: %T\n", part)
-					}
-				}
-			} else {
-				log.Fatalf("Unexpected function call: %s\n", part.Name)
-			}
 		case genai.Text:
 			fmt.Printf("RESP: %s\n", string(part))
+		case genai.FunctionCall:
+			fmt.Printf("CALL: %s\n", part.Name)
+			res, err := verifyAndRunFunctionCall(session, part)
+			if err != nil {
+				return err
+			}
+			return consumeResponse(session, res)
 		default:
-			fmt.Printf("Unexpected content type: %T\n", part)
+			fmt.Printf("Unexpected content type: %T, %v\n", part, part)
 		}
 	}
+
+	return nil
+}
+
+func verifyAndRunFunctionCall(session *genai.ChatSession, call genai.FunctionCall) (*genai.GenerateContentResponse, error) {
+	switch call.Name {
+	case "time_now":
+		// No arg size validation
+		now, err := callTimeNow()
+		if err != nil {
+			return nil, err
+		}
+		reply := genai.FunctionResponse{
+			Name: "time_now",
+			Response: map[string]any{
+				"current_time": now,
+			},
+		}
+		return session.SendMessage(context.Background(), reply)
+	default:
+		return nil, fmt.Errorf("unknown function call: %s", call.Name)
+	}
+}
+
+func callTimeNow() (string, error) {
+	currentTime := time.Now().UTC().Format(time.RFC3339)
+	return fmt.Sprintf("Current time in UTC: %s", currentTime), nil
 }
