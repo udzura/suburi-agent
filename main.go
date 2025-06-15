@@ -19,8 +19,10 @@ var calClient *calendar.Service
 
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	ctx, cancel := context.WithCancel(context.Background())
-	go startTokenServer(ctx)
+	pipe := make(chan string)
+	go acceptTokenViaLocalHTTP(ctx, pipe)
 	defer cancel()
+
 	config.RedirectURL = "http://localhost:28080/"
 
 	// AccessTypeOffline を指定することでリフレッシュトークンを取得する
@@ -28,17 +30,14 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 		"state-token",
 		oauth2.AccessTypeOffline,
 	)
-	fmt.Printf("以下のURLにアクセスしてアカウントの認証を行い、\n"+
-		"表示された認可コードを貼り付けてEnterキーを押してください: \n%v\n", authURL)
+	fmt.Printf("以下のURLにアクセスしてアカウントの認証を行ってください。\n"+
+		"%v\n", authURL)
 
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("認可コードの読み取りに失敗しました: %v", err)
-	}
+	authCode := <-pipe
 
 	tok, err := config.Exchange(context.TODO(), authCode)
 	if err != nil {
-		log.Fatalf("コードからトークンへの変換に失敗しました: %v", err)
+		log.Fatalf("トークンの取得に失敗しました: %v", err)
 	}
 	return tok
 }
@@ -75,15 +74,6 @@ func main() {
 	}
 	calClient = client2
 
-	// res, err := callEventList(5)
-	// if err != nil {
-	// 	log.Printf("Failed to list events: %v\n", err)
-	// 	os.Exit(1)
-	// }
-	// for _, event := range res {
-	// 	fmt.Printf("Event: %s, Start: %s, End: %s\n", event["summary"], event["start"], event["end"])
-	// }
-	// os.Exit(0)
 	// model := client.GenerativeModel("gemma-3-12b-it")
 	model := client.GenerativeModel("gemini-2.0-flash")
 	model.SystemInstruction = &genai.Content{

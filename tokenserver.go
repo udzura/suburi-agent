@@ -6,15 +6,24 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
-func startTokenServer(ctx context.Context) {
+var once = new(sync.Once)
+
+func acceptTokenViaLocalHTTP(ctx context.Context, pipe chan<- string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("code")
+		if token != "" {
+			once.Do(func() {
+				pipe <- token
+			})
+		}
+
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf(`
+		w.Write(fmt.Appendf(nil, `
 <!DOCTYPE html>
 <html>
 <head>
@@ -23,16 +32,20 @@ func startTokenServer(ctx context.Context) {
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
-	<h1>Token:</h1>
+	<h1>Token is:</h1>
 	<pre>%s</re>
+	<p>認証に成功したらこのページを閉じてください</p>
 </body>
 </html>
-		`, token)))
+		`, token))
 	}))
 	server := &http.Server{
 		Addr:    ":28080",
 		Handler: mux,
 	}
+	server.RegisterOnShutdown(func() {
+		close(pipe)
+	})
 
 	go func() {
 		// contextからのキャンセル通知を待つ
@@ -48,7 +61,9 @@ func startTokenServer(ctx context.Context) {
 		}
 	}()
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Printf("failed to start server: %w", err)
-	}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("failed to start server: %s", err.Error())
+		}
+	}()
 }
