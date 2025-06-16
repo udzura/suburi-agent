@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,7 +16,10 @@ import (
 	"google.golang.org/api/option"
 )
 
-var calClient *calendar.Service
+var (
+	calClient  *calendar.Service
+	systemExit = errors.New("System Exit")
+)
 
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -80,12 +84,17 @@ func main() {
 		Parts: []genai.Part{
 			genai.Text("calendar_event_register 関数に日時を渡すときは、必ず RFC3339 形式で指定してください。"),
 			genai.Text("現在時刻は日本時間で表現してください。方法としては、 time_now 関数を使い、UTC 時刻に9時間を足して日本時間に変換して表示してください。"),
+			genai.Text("「さようなら」や「終了」などの別れの言葉で _exit 関数を呼び出し、セッションを終了してください。"),
 		},
 		Role: "秘書",
 	}
 	model.Tools = []*genai.Tool{
 		{
 			FunctionDeclarations: []*genai.FunctionDeclaration{
+				{
+					Name:        "_exit",
+					Description: "Exit the current session",
+				},
 				{
 					Name:        "time_now",
 					Description: "Get the current time in UTC",
@@ -157,7 +166,12 @@ func main() {
 			panic(err)
 		}
 		if err := consumeResponse(session, resp); err != nil {
-			panic(err)
+			if errors.Is(err, systemExit) {
+				fmt.Println("Exiting session as requested by the user.")
+				break
+			}
+			fmt.Printf("Error processing response: %v\n", err)
+			continue
 		}
 	}
 	fmt.Println("Session ended")
@@ -185,6 +199,10 @@ func consumeResponse(session *genai.ChatSession, resp *genai.GenerateContentResp
 
 func verifyAndRunFunctionCall(session *genai.ChatSession, call genai.FunctionCall) (*genai.GenerateContentResponse, error) {
 	switch call.Name {
+	case "_exit":
+		// No arg size validation
+		log.Println("Exiting session as requested by the user.")
+		return nil, systemExit
 	case "time_now":
 		// No arg size validation
 		now, err := callTimeNow()
