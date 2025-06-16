@@ -79,6 +79,7 @@ func main() {
 	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{
 			genai.Text("calendar_event_register 関数に日時を渡すときは、必ず RFC3339 形式で指定してください。"),
+			genai.Text("現在時刻は日本時間で表現してください。方法としては、 time_now 関数を使い、UTC 時刻に9時間を足して日本時間に変換して表示してください。"),
 		},
 		Role: "秘書",
 	}
